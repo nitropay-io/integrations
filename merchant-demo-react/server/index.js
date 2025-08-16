@@ -44,9 +44,6 @@ app.post('/payment/create-intent', async (req, res) => {
     const intentId = makeBytes32()
     const expireAt = new Date(Date.now() + (expiresInMinutes * 60 * 1000))
     
-    console.log('now:', (new Date()).toUTCString());
-    console.log('expiresAt:', expireAt.toUTCString());
-
     const payload = {
       id: intentId,
       amount: Number(amount),
