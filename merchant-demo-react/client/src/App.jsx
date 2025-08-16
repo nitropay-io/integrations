@@ -62,7 +62,7 @@ export default function App() {
     try {
       const provider = new ethers.BrowserProvider(window.ethereum)
       const network = await provider.getNetwork()
-      if (network.chainId !== Number(chainId)) {
+      if (Number(network.chainId) !== Number(chainId)) {
         alert(`Connected wallet is on chain ${network.chainId}, please switch to chain ${chainId}`)
         return
       }
