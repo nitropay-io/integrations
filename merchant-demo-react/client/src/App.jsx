@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from 'react'
 import { ethers } from 'ethers'
 
+import { NitroPaySDK } from 'nitropay-sdk';
+
 // Config
 const MERCHANT_SERVER = import.meta.env.VITE_MERCHANT_SERVER || 'http://localhost:4000'
+const PUBLIC_API_KEY = import.meta.env.VITE_NITROPAY_PUBLIC_KEY || ''
+
+const sdk = new NitroPaySDK({
+  publicKey: PUBLIC_API_KEY,
+  evmProvider: window.ethereum
+})
 
 export default function App() {
   const [chains, setChains] = useState([])
@@ -16,25 +24,29 @@ export default function App() {
   const [walletAddress, setWalletAddress] = useState(null)
 
   useEffect(() => {
-    // load supported chains (via merchant server proxy)
-    fetch(`${MERCHANT_SERVER}/payment/supported-chains`)
-      .then(r => r.json())
-      .then(setChains)
-      .catch(err => {
-        console.error('failed to fetch chains', err)
-        setChains([])
-      })
+    sdk.getSupportedChains()
+    .then(result => {
+      return result
+    })
+    .then(setChains)
+    .catch(err => {
+      console.error('failed to fetch chains', err)
+      setChains([])
+    });
   }, [])
 
   useEffect(() => {
     if (!chainId) return setTokens([])
-    fetch(`${MERCHANT_SERVER}/payment/${chainId}/supported-tokens`)
-      .then(r => r.json())
-      .then(setTokens)
-      .catch(err => {
-        console.error('failed to fetch tokens', err)
-        setTokens([])
-      })
+
+    sdk.getSupportedTokens(chainId)
+    .then(result => {
+      return result
+    })
+    .then(setTokens)
+    .catch(err => {
+      console.error('failed to fetch tokens', err)
+      setTokens([])
+    })
   }, [chainId])
 
   // helper validate amount
@@ -60,66 +72,47 @@ export default function App() {
     if (!canPay) return
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      const network = await provider.getNetwork()
-      if (Number(network.chainId) !== Number(chainId)) {
-        alert(`Connected wallet is on chain ${network.chainId}, please switch to chain ${chainId}`)
-        return
-      }
+      // const provider = new ethers.BrowserProvider(window.ethereum)
+      // const network = await provider.getNetwork()
+      // if (Number(network.chainId) !== Number(chainId)) {
+      //   alert(`Connected wallet is on chain ${network.chainId}, please switch to chain ${chainId}`)
+      //   return
+      // }
       setLoading(true)
       setTxStatus({ step: 'create-intent' })
 
-      // 1) Create payment intent on merchant server
+      const amountInWei = ethers.parseUnits(amount.toString(), selectedTokenData.decimals)
+      const body = {
+        amount: amountInWei,
+        token,
+        chainId: Number(chainId)
+      };
       const resp = await fetch(`${MERCHANT_SERVER}/payment/create-intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: Number(amount),
+          amount: amountInWei.toString(),
           token,
           chainId: Number(chainId)
         })
       })
-      const j = await resp.json()
-      if (!resp.ok) throw new Error(j.error || 'create-intent failed')
+      if (!resp.ok) throw new Error(resp.error || 'create-intent failed')
+      
+      setTxStatus({ step: 'approve_and_pay' })
 
-      const intent = j.intent
-      setTxStatus({ step: 'created', intent })
+      const intent = await resp.json()
+      const { intentId, vaultAddress, amount:intentAmount } = intent;
+      
+      const receipt = await sdk.pay({
+        intentId,
+        chainId,
+        vaultAddress,
+        tokenAddress: token,
+        amount: BigInt(intentAmount)
+      });
 
-      // 2) Do approval (ERC20) then call pay on contract
-      setTxStatus({ step: 'approval' })
-      // use browser provider/signer
-      const signer = await provider.getSigner()
-      const userAddress = await signer.getAddress()
-
-      // minimal ERC20 ABI
-      const erc20Abi = [
-        'function approve(address spender, uint256 amount) public returns (bool)',
-        'function allowance(address owner, address spender) public view returns (uint256)'
-      ]
-
-      const vaultAddress = j.intent.vaultAddress || j.provider?.vaultAddress // fallback
-
-      if (!vaultAddress) throw new Error('vault address missing from intent')
-
-      const tokenContract = new ethers.Contract(token, erc20Abi, signer)
-      const amountUnits = ethers.parseUnits(Number(amount).toString(), selectedTokenData?.decimals ?? 6) // default 6 for stablecoins
-
-      const approvalTx = await tokenContract.approve(vaultAddress, amountUnits)
-        setTxStatus({ step: 'approval_sent', txHash: approvalTx.hash })
-        await approvalTx.wait()
-
-      setTxStatus({ step: 'pay_tx' })
-      const paymentEscrowAbi = [
-        'function pay(bytes32 intentId, address token, uint256 amount) external'
-      ]
-      const vaultContract = new ethers.Contract(vaultAddress, paymentEscrowAbi, signer)
-
-      // intent.id is a bytes32 hex from server
-      const intentId = intent.id
-      const payTx = await vaultContract.pay(intentId, token, amountUnits, { gasLimit: 600000 })
-      setTxStatus({ step: 'pay_sent', txHash: payTx.hash })
-      const receipt = await payTx.wait()
-      setTxStatus({ step: 'succeeded', receipt })
+      setLoading(false)
+      setTxStatus({ step: 'payment_sent', txStatus: receipt.transactionHash })
     } catch (err) {
       setTxStatus({ step: 'error', error: String(err) })
     } finally {
