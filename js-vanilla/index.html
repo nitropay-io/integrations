@@ -79,9 +79,12 @@
     import { ethers } from 'https://cdn.jsdelivr.net/npm/ethers@5.7.2/+esm'
     import { NitroPaySDK } from '@nitropay-io/sdk'
 
+    // example API KEY, do not use
+    const PUBLIC_KEY = 'pk_b56d0c8b-ccca-4516-8783-8950689e27c7'
+
     const sdk = new NitroPaySDK({
       evmProvider: window.ethereum,
-      publicKey: 'pk_b56d0c8b-ccca-4516-8783-8950689e27c7'
+      publicKey: PUBLIC_KEY
     });
 
     const approveAbi = [
