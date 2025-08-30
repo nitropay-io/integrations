@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { ethers } from 'ethers'
 
-import { NitroPaySDK } from 'nitropay-sdk';
+import { NitroPaySDK } from '@nitropay-io/sdk';
 
 // Config
 const MERCHANT_SERVER = import.meta.env.VITE_MERCHANT_SERVER || 'http://localhost:4000'
@@ -72,12 +72,14 @@ export default function App() {
     if (!canPay) return
 
     try {
-      // const provider = new ethers.BrowserProvider(window.ethereum)
-      // const network = await provider.getNetwork()
-      // if (Number(network.chainId) !== Number(chainId)) {
-      //   alert(`Connected wallet is on chain ${network.chainId}, please switch to chain ${chainId}`)
-      //   return
-      // }
+      
+      const provider = new ethers.BrowserProvider(window.ethereum)
+      const network = await provider.getNetwork()
+      if (Number(network.chainId) !== Number(chainId)) {
+        alert(`Connected wallet is on chain ${network.chainId}, please switch to chain ${chainId}`)
+        return
+      }
+
       setLoading(true)
       setTxStatus({ step: 'create-intent' })
 
