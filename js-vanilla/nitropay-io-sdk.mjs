@@ -63,7 +63,7 @@ var paymentEscrowAbi = [
 ];
 
 // src/utils.ts
-import * as viemChains from "viem/chains";
+import * as viemChains from "viemChains";
 function isChain(candidate) {
   return typeof candidate === "object" && candidate !== null && // propriété minimale commune à toutes les Chain de viem
   typeof candidate.id === "number" && typeof candidate.name === "string";

@@ -7,9 +7,10 @@
     {
       "imports": {
         "viem": "https://esm.sh/viem",
-        "viemChains": "https://esm.sh/viem/chains",
+        "viem/chains": "https://esm.sh/viem/chains",
         "ethers": "https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.esm.min.js",
-        "@nitropay-io/sdk" : "https://raw.githubusercontent.com/nitropay-io/merchant-payment-examples/js-vanilla/nitropay-io-sdk.mjs"
+        "axios": "https://esm.sh/axios",
+        "@nitropay-io/sdk": "https://esm.sh/@nitropay-io/sdk@0.1.0/es2022/sdk.mjs"
       }
     }
   </script>
@@ -52,16 +53,17 @@
   <h1>Pay with Crypto</h1>
 
   <form id="paymentForm">
+    <label for="selectedAmount">$ Amount</label>
+    <input type="number" id="selectedAmount" name="selectedAmount" value="1">
     <label for="blockchainSelect">Select Blockchain:</label>
     <select id="blockchainSelect">
       <option value="">-- Choose Chain --</option>
     </select>
 
     <div class="token-options">
-      <label><input type="radio" name="token" value="USDT" /> USDT</label>
-      <label><input type="radio" name="token" value="USDC" /> USDC</label>
+      <div id="tokenSelect">
+      </div>
     </div>
-
     <button id="payButton" type="button" disabled>Pay</button>
   </form>
 
@@ -73,8 +75,14 @@
       custom,
       parseUnits
     } from 'viem'
-    import { sepolia, seiTestnet } from 'viemChains'
+    import { sepolia, seiTestnet } from 'viem/chains'
     import { ethers } from 'https://cdn.jsdelivr.net/npm/ethers@5.7.2/+esm'
+    import { NitroPaySDK } from '@nitropay-io/sdk'
+
+    const sdk = new NitroPaySDK({
+      evmProvider: window.ethereum,
+      publicKey: 'pk_b56d0c8b-ccca-4516-8783-8950689e27c7'
+    });
 
     const approveAbi = [
         {
@@ -104,27 +112,20 @@
       }
     ];
 
-    const chainsMap = {
-      [sepolia.id] : sepolia,
-      [seiTestnet.id]: seiTestnet
-    }
-
-    const vaultAddress = '0xa823950Dad968CBe7c52783dD14C056F15348682'
-    const tokenAddresses = {
-      [sepolia.id]: { USDC: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238', USDT: '0x7169d38820dfd117c3fa1f22a697dba58d90ba06' }
-    }
-
     const chainSelect = document.getElementById('blockchainSelect')
+    const tokenSelect = document.getElementById('tokenSelect')
+    const amountSelect = document.getElementById('selectedAmount')
     const payButton = document.getElementById('payButton')
-
-    let selectedChain = sepolia.id
-    let selectedToken = 'USDC'
+    
+    let selectedChain = null
+    let selectedToken = null
+    let selectedAmount = 1
 
     // Load chains dynamically
-    function loadChains() {
-      const supported = [
-        { id: sepolia.id, name: sepolia.name }
-      ]
+    async function loadChains() {
+
+      const supported = await sdk.getSupportedChains();
+
       supported.forEach(chain => {
         const option = document.createElement('option')
         option.value = chain.id
@@ -133,9 +134,50 @@
       })
     }
 
-    chainSelect.addEventListener('change', () => {
+    async function loadTokens(chainId) {
+      // retrieve tokens from API
+      const tokens = await sdk.getSupportedTokens(chainId);
+      
+      // update UI
+      tokens.forEach(token => {
+        const label = document.createElement("label");
+
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "token";
+        input.value = token.tokenAddress;
+
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(` ${token.symbol} (${token.tokenAddress})`));
+        tokenSelect.appendChild(label);
+        if(!selectedToken) {
+          input.checked = true;
+          selectedToken = token.tokenAddress;
+        }
+      })
+    }
+
+    chainSelect.addEventListener('change', async () => {
+      if (chainSelect.value === '') {
+        tokenSelect.replaceChildren();
+        selectedChain = null;
+        updateButtonState();
+        return await Promise.resolve();
+      }
+
       selectedChain = parseInt(chainSelect.value)
-      updateButtonState()
+      tokenSelect.replaceChildren();
+      await loadTokens(selectedChain);
+      updateButtonState();
+    })
+
+    amountSelect.addEventListener('change', (evt) => {
+      if(isNaN(evt.target.value)) {
+        selectedAmount = 0;
+      } else {
+        selectedAmount = Number(evt.target.value);
+      }
+      updateButtonState();
     })
 
     document.querySelectorAll('input[name="token"]').forEach(el => {
@@ -146,64 +188,49 @@
     })
 
     function updateButtonState() {
-      payButton.disabled = !(selectedChain && selectedToken)
+      payButton.disabled = !(selectedChain && selectedToken && selectedAmount)
     }
 
     async function pay() {
+      
+      if(!(selectedChain && selectedToken && selectedAmount)) {
+        return await Promise().resolve();
+      }
 
-        const chain = chainsMap[selectedChain]
-        const ethereum = window.ethereum || window.phantom.ethereum
-        const amount = parseUnits('1', 6);
+      const amountInWei = ethers.utils.parseUnits(selectedAmount.toString(), 6);
 
-        if (!ethereum) throw new Error(`No ethereum provider found`)
-        if (!chain) throw new Error(`Unsupported chain ${chainId}`)
-
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const account = accounts[0];
-        
-        const publicClient = createPublicClient({
-            account,
-            chain: chain,
-            transport: http(),
+      const response = await fetch('/payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amountInWei.toString(),
+          token: selectedToken,
+          chainId: Number(selectedChain)
         })
+      });
 
-        const walletClient = createWalletClient({
-            account,
-            chain: chain,
-            transport: custom(ethereum)
-        })
-        
-        const approveTx = await walletClient.writeContract({
-            chain: chain,
-            account: await walletClient.getAddresses()[0],
-            to: tokenAddresses[chain.id][selectedToken],
-            abi: approveAbi,
-            functionName: 'approve',
-            args: [vaultAddress, amount]
-        })
-        await publicClient.waitForTransactionReceipt({ hash: approveTx })
-        
-        const intentIdBytes32 = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('')
+      const paymentIntent = await response.json();
+      
+      const { intentId, vaultAddress, amount:intentAmount, tokenAddress } = paymentIntent;
 
-        const payHash = await walletClient.writeContract({
-            account: await walletClient.getAddresses()[0],
-            to: vaultAddress,
-            abi: paymentEscrowAbi,
-            functionName: 'pay',
-            args: [intentIdBytes32, tokenAddresses[chain.id][selectedToken], amount],
-        })
-
-        const receipt = await publicClient.waitForTransactionReceipt({ hash: payHash })
-        
-        return receipt;
+      const receipt = await sdk.pay({
+        intentId,
+        chainId: Number(selectedChain),
+        amount: intentAmount,
+        tokenAddress,
+        vaultAddress
+      });
+      
+      return receipt;
     }
 
     // Handle payment
     payButton.addEventListener('click', async () => {
         try {
-            const receipt = await pay();
-            console.log(receipt)
+            const receiptTxHash = await pay();
+            console.log('receiptTxHash', receiptTxHash);
         } catch (error) {
+          console.log(error)
             alert('Error: ' + error)
         }
     });
