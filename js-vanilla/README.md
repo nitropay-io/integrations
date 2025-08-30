@@ -1,5 +1,7 @@
 # Merchant Payment Example - Javascript
 
+full code example of vanilla javascript implementation for [NitroPaySDK](https://www.npmjs.com/package/@nitropay-io/sdk)
+
 #### Usage
 
 ```
