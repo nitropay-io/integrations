@@ -1,6 +1,6 @@
 # Merchant payment example React
 
-React example application to integrate payment using nitropay-io/sdk.
+React example application to integrate payment using [@nitropay-io/sdk](https://www.npmjs.com/package/@nitropay-io/sdk).
 
 ## Usage
 
