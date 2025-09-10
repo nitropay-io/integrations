@@ -12,6 +12,13 @@ const sdk = new NitroPaySDK({
   evmProvider: window.ethereum
 })
 
+let provider = new ethers.BrowserProvider(window.ethereum);
+
+window.ethereum.on('chainChanged', async () => {
+  provider = new ethers.BrowserProvider(window.ethereum);
+  console.log(`new network: ${(await provider.getNetwork()).chainId}`)
+})
+
 export default function App() {
   const [chains, setChains] = useState([])
   const [tokens, setTokens] = useState([])
@@ -28,25 +35,23 @@ export default function App() {
     .then(result => {
       return result
     })
-    .then(setChains)
+    .then((supportedChains) => {
+      setChains(supportedChains);
+    })
     .catch(err => {
       console.error('failed to fetch chains', err)
       setChains([])
+      setTokens([])
     });
   }, [])
 
   useEffect(() => {
-    if (!chainId) return setTokens([])
+    if (!chainId || chains.length < 1) return setTokens([])
 
-    sdk.getSupportedTokens(chainId)
-    .then(result => {
-      return result
-    })
-    .then(setTokens)
-    .catch(err => {
-      console.error('failed to fetch tokens', err)
-      setTokens([])
-    })
+    const chain = chains.find(c => c.networkId == chainId)
+    if (chain) {
+      setTokens(chain.tokens)
+    }
   }, [chainId])
 
   // helper validate amount
@@ -60,10 +65,11 @@ export default function App() {
   // connect wallet (simple)
   async function connectWallet() {
     if (!window.ethereum) return alert('Please install MetaMask')
-    const provider = new ethers.BrowserProvider(window.ethereum)                      
+    const provider = new ethers.BrowserProvider(window.ethereum)
     await provider.send('eth_requestAccounts', [])
     const signer = await provider.getSigner()
     const address = await signer.getAddress()
+
     setWalletAddress(address)
   }
 
@@ -71,32 +77,27 @@ export default function App() {
   async function handlePay() {
     if (!canPay) return
 
-    try {
-      
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      const network = await provider.getNetwork()
-      if (Number(network.chainId) !== Number(chainId)) {
-        alert(`Connected wallet is on chain ${network.chainId}, please switch to chain ${chainId}`)
-        return
-      }
+    const network = await provider._detectNetwork();
+    if(Number(network.chainId) !== Number(chainId)) {
+      alert(`Please switch to network ${chainId}`);
+      return; 
+    }
 
+    try {
       setLoading(true)
       setTxStatus({ step: 'create-intent' })
 
       const amountInWei = ethers.parseUnits(amount.toString(), selectedTokenData.decimals)
       const body = {
-        amount: amountInWei,
+        amount: amountInWei.toString(),
         token,
         chainId: Number(chainId)
       };
+
       const resp = await fetch(`${MERCHANT_SERVER}/payment/create-intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: amountInWei.toString(),
-          token,
-          chainId: Number(chainId)
-        })
+        body: JSON.stringify(body)
       })
       if (!resp.ok) throw new Error(resp.error || 'create-intent failed')
       
@@ -136,7 +137,7 @@ export default function App() {
           <select value={chainId} onChange={e => setChainId(e.target.value)}>
             <option value="">-- choose chain --</option>
             {chains.map(c => (
-              <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+              <option key={c.networkId} value={c.networkId}>{c.name} ({c.networkId})</option>
             ))}
           </select>
         </div>
@@ -145,17 +146,17 @@ export default function App() {
           <label>Token</label>
           <div className="radio-row">
             {tokens.length === 0 ? <em>Select chain</em> : tokens.map(t => (
-              <label key={t.tokenAddress}>
+              <label key={t.address}>
                 <input 
                   type="radio" 
                   name="token" 
-                  checked={token === t.tokenAddress} 
+                  checked={token === t.address} 
                   onChange={() => {
-                    setToken(t.tokenAddress)
+                    setToken(t.address)
                     setSelectedTokenData(t)
                   }}
                 />
-                {t.symbol} ({t.tokenAddress})
+                {t.symbol} ({t.address})
               </label>
             ))}
           </div>
