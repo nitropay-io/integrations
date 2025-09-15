@@ -12,13 +12,6 @@ const sdk = new NitroPaySDK({
   evmProvider: window.ethereum
 })
 
-let provider = new ethers.BrowserProvider(window.ethereum);
-
-window.ethereum.on('chainChanged', async () => {
-  provider = new ethers.BrowserProvider(window.ethereum);
-  console.log(`new network: ${(await provider.getNetwork()).chainId}`)
-})
-
 export default function App() {
   const [chains, setChains] = useState([])
   const [tokens, setTokens] = useState([])
@@ -29,6 +22,20 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [txStatus, setTxStatus] = useState(null)
   const [walletAddress, setWalletAddress] = useState(null)
+
+
+  if (!window.ethereum) return alert('Please install MetaMask')
+  
+  const handleChainChanged = (chainId) => {
+    console.log(`Chain changed to: ${chainId}`);
+    // Re-initialize your contract or other objects here
+    // ...
+  };
+  
+  // Listen for chain changes
+  window.ethereum.on("chainChanged", handleChainChanged);
+
+    
 
   useEffect(() => {
     sdk.getSupportedChains()
@@ -64,8 +71,7 @@ export default function App() {
 
   // connect wallet (simple)
   async function connectWallet() {
-    if (!window.ethereum) return alert('Please install MetaMask')
-    const provider = new ethers.BrowserProvider(window.ethereum)
+    const provider = new ethers.BrowserProvider(window.ethereum);
     await provider.send('eth_requestAccounts', [])
     const signer = await provider.getSigner()
     const address = await signer.getAddress()
@@ -76,12 +82,6 @@ export default function App() {
   // main pay flow
   async function handlePay() {
     if (!canPay) return
-
-    const network = await provider._detectNetwork();
-    if(Number(network.chainId) !== Number(chainId)) {
-      alert(`Please switch to network ${chainId}`);
-      return; 
-    }
 
     try {
       setLoading(true)
